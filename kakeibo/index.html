@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="家計簿">
+<meta name="theme-color" content="#f3f4f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141816" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>家計簿</title>
+<style>
+/* レイアウト：上に「使えるお金」を大きく、その下に内訳タイル、入力ボタン、記録一覧。下部に固定ナビ */
+:root{
+  --bg:#f3f4f2; --surface:#ffffff; --sunken:#eaede8; --ink:#1d2320; --muted:#646e68; --line:#dde1dc;
+  --accent:#24584a; --accent-ink:#ffffff; --minus:#b23a2e; --plus:#2e7d4f;
+  --font:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#141816; --surface:#1d2220; --sunken:#262c29; --ink:#e8ece9; --muted:#9aa49e; --line:#333b37;
+    --accent:#7fc4ae; --accent-ink:#0f1d18; --minus:#f0897d; --plus:#7fd19e; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141816; --surface:#1d2220; --sunken:#262c29; --ink:#e8ece9; --muted:#9aa49e; --line:#333b37;
+  --accent:#7fc4ae; --accent-ink:#0f1d18; --minus:#f0897d; --plus:#7fd19e; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.5;
+  padding-bottom:calc(76px + env(safe-area-inset-bottom,0px));-webkit-tap-highlight-color:transparent}
+header{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 92%,transparent);
+  -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-bottom:1px solid var(--line);
+  padding:calc(12px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px))}
+header .wrap{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+h1{font-size:20px;margin:0;letter-spacing:.02em}
+.period{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+main{max-width:720px;margin:0 auto;padding:12px max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:12px}
+h2{font-size:15px;margin:0 0 10px}
+.card{background:var(--surface);border-radius:14px;padding:16px;border:1px solid var(--line)}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.hero .label{font-size:12px;color:var(--muted)}
+.hero .big{font-size:32px;font-weight:700;letter-spacing:-.01em;margin-top:2px}
+.hero .formula{font-size:12px;color:var(--muted);margin-top:4px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:14px}
+.metric{background:var(--sunken);border-radius:10px;padding:10px 12px}
+.metric .label{font-size:12px;color:var(--muted)}
+.metric .value{font-size:18px;font-weight:700;margin-top:2px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px}
+.grid3 .metric{padding:8px 10px}.grid3 .label{font-size:11px}.grid3 .value{font-size:15px}
+.btns{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+@media (max-width:520px){.btns{grid-template-columns:repeat(2,minmax(0,1fr))}}
+button{font:inherit;border:0;border-radius:10px;padding:11px 12px;background:var(--accent);color:var(--accent-ink);font-weight:600;cursor:pointer;touch-action:manipulation}
+button.secondary{background:var(--sunken);color:var(--ink)}
+button.danger{background:transparent;color:var(--minus);border:1px solid color-mix(in srgb,var(--minus) 45%,transparent)}
+button.danger.armed{background:var(--minus);color:var(--surface)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.notice{font-size:13px;color:var(--muted);margin:10px 0 0}
+label{font-size:13px;color:var(--muted);display:block;margin:10px 0 4px}
+input,select{font:inherit;font-size:16px;width:100%;padding:10px 11px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);min-width:0}
+.formgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 10px}
+.formgrid .full{grid-column:1/-1}
+@media (max-width:420px){.formgrid{grid-template-columns:1fr}}
+.actions{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+.actions button{flex:1 1 auto}
+.list{display:flex;flex-direction:column}
+.item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid var(--line);
+  background:none;color:inherit;border-radius:0;text-align:left;font-weight:400;width:100%}
+.item:last-child{border-bottom:0}
+.item .name{font-weight:600;overflow-wrap:anywhere}
+.item .sub{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.item > div:first-child{min-width:0}
+.amount{font-weight:700}
+.amount.minus{color:var(--minus)} .amount.plus{color:var(--plus)} .amount.move{color:var(--muted)}
+.chip{display:inline-block;font-size:11px;padding:0 6px;border-radius:6px;background:var(--sunken);color:var(--muted);margin-left:4px;vertical-align:1px}
+.empty{font-size:13px;color:var(--muted);padding:8px 0}
+.linkbtn{background:none;color:var(--accent);padding:8px 0 0;font-weight:600}
+nav{position:fixed;bottom:0;left:0;right:0;z-index:10;background:color-mix(in srgb,var(--surface) 95%,transparent);
+  -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-top:1px solid var(--line);
+  padding:8px max(16px,env(safe-area-inset-left,0px)) calc(8px + env(safe-area-inset-bottom,0px));display:flex;justify-content:center;gap:8px}
+nav button{flex:1;max-width:200px;background:var(--sunken);color:var(--ink)}
+nav button[aria-current="page"]{background:var(--accent);color:var(--accent-ink)}
+.status{font-size:13px;display:flex;gap:6px;align-items:center}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.dot.ok{background:var(--plus)}
+#toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:20;
+  background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;max-width:calc(100% - 32px);
+  opacity:0;pointer-events:none;transition:opacity .2s}
+#toast.show{opacity:1}
+@media (prefers-reduced-motion:reduce){#toast{transition:none}}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header><div class="wrap"><h1>家計簿</h1><div class="period num" id="period"></div></div></header>
+
+<main>
+<!-- ホーム -->
+<section id="home" class="stack" style="display:flex;flex-direction:column;gap:12px">
+  <div class="card hero">
+    <div class="label">実質的に使えるお金</div>
+    <div class="big num" id="available"></div>
+    <div class="formula">財布 − クレカ未払い ＋ PASMO</div>
+    <div class="grid" id="metrics"></div>
+    <div class="grid3" id="periodMetrics"></div>
+  </div>
+  <div class="card">
+    <h2>入力</h2>
+    <div class="btns">
+      <button type="button" data-form="expense">支出</button>
+      <button type="button" data-form="income">収入</button>
+      <button type="button" data-form="transfer">資金移動</button>
+      <button type="button" data-form="debt">借金返済</button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>最近の記録</h2>
+    <div class="list" id="recent"></div>
+    <button type="button" class="linkbtn" id="showAll" hidden>すべての記録を見る</button>
+  </div>
+</section>
+
+<!-- すべての記録 -->
+<section id="history" hidden>
+  <div class="card">
+    <h2>すべての記録</h2>
+    <p class="notice" style="margin:0 0 6px">記録をタップすると修正・削除できます。</p>
+    <div class="list" id="allList"></div>
+  </div>
+</section>
+
+<!-- 入力フォーム -->
+<section id="formSection" hidden>
+  <form class="card" id="entryForm" novalidate>
+    <h2 id="formTitle"></h2>
+    <div class="formgrid">
+      <div><label for="fdate">日付</label><input id="fdate" type="date" required></div>
+      <div><label for="famount">金額（円）</label><input id="famount" type="number" inputmode="numeric" min="1" step="1" required></div>
+      <div class="full"><label for="fname">内容</label><input id="fname" autocomplete="off" placeholder="例：昼食、給料、PASMOチャージ"></div>
+      <div class="full" id="extra"></div>
+      <div class="full"><label for="fmemo">メモ（任意）</label><input id="fmemo" autocomplete="off"></div>
+    </div>
+    <p class="notice" id="formNotice" hidden></p>
+    <div class="actions">
+      <button type="submit" id="saveBtn">保存</button>
+      <button type="button" class="secondary" id="cancelBtn">戻る</button>
+    </div>
+    <div class="actions" id="deleteRow" hidden>
+      <button type="button" class="danger" id="deleteBtn">この記録を削除</button>
+    </div>
+  </form>
+</section>
+
+<!-- 設定 -->
+<section id="settings" hidden style="flex-direction:column;gap:12px">
+  <div class="card">
+    <h2>残高の調整</h2>
+    <p class="notice" style="margin-top:0">今の財布・PASMO・借金の残高を入力すると、その金額に合わせます。調整は支出や収入には計上しません。</p>
+    <label for="setWallet">財布（銀行口座・現金の合計）</label><input id="setWallet" type="number" inputmode="numeric">
+    <label for="setPasmo">PASMO残高</label><input id="setPasmo" type="number" inputmode="numeric">
+    <label for="setDebt">借金残高</label><input id="setDebt" type="number" inputmode="numeric">
+    <div class="actions"><button type="button" id="saveSettings">残高を保存</button></div>
+  </div>
+  <div class="card">
+    <h2>バックアップ</h2>
+    <p class="notice" style="margin-top:0">データはこのiPhoneの中にだけ保存されています。機種変更やデータ消失に備えて、ときどき書き出して「ファイル」アプリに保存してください。</p>
+    <div class="actions">
+      <button type="button" id="exportBtn">バックアップを書き出す</button>
+      <button type="button" class="secondary" id="importBtn">バックアップを読み込む</button>
+    </div>
+    <input type="file" id="importFile" accept=".json,application/json" hidden>
+    <div id="importConfirm" hidden>
+      <p class="notice">読み込むと、今のデータはすべてバックアップの内容に置き換わります。</p>
+      <div class="actions">
+        <button type="button" class="danger armed" id="importYes">置き換える</button>
+        <button type="button" class="secondary" id="importNo">やめる</button>
+      </div>
+    </div>
+    <a id="dlLink" hidden></a>
+  </div>
+  <div class="card">
+    <h2>オフライン</h2>
+    <div class="status"><span class="dot" id="offDot"></span><span id="offText"></span></div>
+  </div>
+  <div class="card">
+    <h2>全データ削除</h2>
+    <p class="notice" style="margin-top:0">記録と残高をすべて消します。元に戻せません。</p>
+    <div class="actions"><button type="button" class="danger" id="resetBtn">全データを削除</button></div>
+  </div>
+</section>
+</main>
+
+<nav>
+  <button type="button" data-nav="home" aria-current="page">ホーム</button>
+  <button type="button" data-nav="history">記録</button>
+  <button type="button" data-nav="settings">設定</button>
+</nav>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+const KEY = "kakeibo_v2";
+const LEGACY_KEY = "aoi_kakeibo_v1";
+const CATS = ["食費","日用品","交通費","医療・健康","衣服・美容","趣味・娯楽","交際費","住居","水道光熱費","通信費","サブスク","仕事・学習","その他"];
+const TITLES = {expense:"支出を記録", income:"収入を記録", transfer:"資金移動", debt:"借金返済"};
+const DEFAULT_NAME = {expense:"支出", income:"収入", transfer:"資金移動", debt:"借金返済"};
+const SRC = {wallet:"財布", cc:"クレカ", pasmo:"PASMO"};
+const PLACE = {wallet:"財布", pasmo:"PASMO", cc_settle:"クレカ使用分（引落）"};
+const $ = id => document.getElementById(id);
+
+/* ---------- データ ---------- */
+function blank(){ return {v:2, base:{wallet:0,pasmo:0,debt:0,cc:0}, entries:[]}; }
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function num(x){ const n = Math.round(Number(x)); return Number.isFinite(n) ? n : 0; }
+
+function normalize(o){
+  if (!o || typeof o !== "object") throw new Error("bad");
+  if (o.v === 2 && Array.isArray(o.entries)) {
+    const b = o.base || {};
+    return {v:2, base:{wallet:num(b.wallet),pasmo:num(b.pasmo),debt:num(b.debt),cc:num(b.cc)},
+      entries:o.entries.filter(e => e && TITLES[e.type]).map(e => ({...e, id:e.id || uid(), amount:num(e.amount)}))};
+  }
+  if (Array.isArray(o.entries) && "wallet" in o) return fromV1(o);
+  throw new Error("bad");
+}
+/* 以前の家計簿（v1）のデータ：残高はそのまま引き継ぎ、記録は履歴として取り込む（残高には影響させない） */
+function fromV1(o){
+  const cc = o.entries.filter(e => e.type === "cc_use" && !e.settled).reduce((a,e) => a + num(e.amount), 0);
+  const entries = o.entries.filter(e => TITLES[e.type]).map(e => {
+    const d = e.detail || "";
+    const isCat = e.type === "expense" && CATS.includes(d);
+    return {id:uid(), type:e.type, date:e.date, amount:num(e.amount), name:e.name || DEFAULT_NAME[e.type],
+      cat: isCat ? d : "", memo: isCat ? "" : d, legacy:true};
+  });
+  return {v:2, base:{wallet:num(o.wallet), pasmo:num(o.pasmo), debt:num(o.debt), cc}, entries};
+}
+function load(){
+  try {
+    const s = localStorage.getItem(KEY);
+    if (s) return normalize(JSON.parse(s));
+    const old = localStorage.getItem(LEGACY_KEY);
+    if (old) return fromV1(JSON.parse(old));
+  } catch(e) {}
+  return blank();
+}
+function persist(){
+  try { localStorage.setItem(KEY, JSON.stringify(db)); return true; }
+  catch(e){ toast("保存できませんでした。iPhoneの空き容量を確認してください"); return false; }
+}
+let db = load();
+try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch(e) {}
+
+/* 記録を日付順に再生して残高を求める */
+function ordered(){
+  return db.entries.map((e,i) => ({e,i})).sort((a,b) => (a.e.date < b.e.date ? -1 : a.e.date > b.e.date ? 1 : a.i - b.i)).map(x => x.e);
+}
+function apply(s, e){
+  const a = e.amount;
+  if (e.legacy) return;
+  if (e.type === "expense") {
+    if (e.src === "wallet") s.wallet -= a;
+    else if (e.src === "pasmo") s.pasmo -= a;
+    else if (e.src === "cc") s.cc += a;
+  } else if (e.type === "income") {
+    if (e.dest === "pasmo") s.pasmo += a; else s.wallet += a;
+  } else if (e.type === "transfer") {
+    if (e.from === "wallet") s.wallet -= a;
+    if (e.from === "pasmo") s.pasmo -= a;
+    if (e.to === "wallet") s.wallet += a;
+    if (e.to === "pasmo") s.pasmo += a;
+    if (e.from === "cc_settle") { s.cc -= Math.min(s.cc, a); s.wallet -= a; }
+  } else if (e.type === "debt") {
+    s.wallet -= a; s.debt = Math.max(0, s.debt - a);
+  }
+}
+function balances(){
+  const s = {...db.base};
+  for (const e of ordered()) apply(s, e);
+  return s;
+}
+
+/* ---------- 日付・期間（毎月26日〜翌月25日） ---------- */
+function ymd(d){ return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); }
+function today(){ return ymd(new Date()); }
+function periodRange(){
+  const d = new Date(); let y = d.getFullYear(), m = d.getMonth();
+  if (d.getDate() <= 25) m--;
+  const s = new Date(y, m, 26), e = new Date(y, m + 1, 25);
+  return {s, e, from: ymd(s), to: ymd(e)};
+}
+function inPeriod(date, r){ return date >= r.from && date <= r.to; }
+
+/* ---------- 表示 ---------- */
+const yenFmt = new Intl.NumberFormat("ja-JP", {style:"currency", currency:"JPY", maximumFractionDigits:0});
+function yen(n){ return yenFmt.format(n); }
+function esc(s){ return String(s ?? "").replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
+function fmtDate(s){ const [y,m,d] = String(s).split("-"); return y ? `${Number(m)}/${Number(d)}` : s; }
+
+function itemHTML(e){
+  let sub = [fmtDate(e.date)];
+  if (e.type === "expense") { if (e.cat) sub.push(e.cat); if (e.src) sub.push(SRC[e.src]); }
+  if (e.type === "income") sub.push("入金先：" + (e.dest === "pasmo" ? "PASMO" : "財布"));
+  if (e.type === "transfer" && e.from) sub.push(`${PLACE[e.from]} → ${PLACE[e.to]}`);
+  if (e.memo) sub.push(e.memo);
+  const cls = e.type === "income" ? "plus" : e.type === "transfer" ? "move" : "minus";
+  const sign = e.type === "income" ? "+" : e.type === "transfer" ? "" : "−";
+  return `<button type="button" class="item" data-id="${esc(e.id)}"><div><div class="name">${esc(e.name)}${e.type==="transfer"?'<span class="chip">移動</span>':""}${e.type==="debt"?'<span class="chip">返済</span>':""}</div><div class="sub">${sub.map(esc).join(" ・ ")}</div></div><div class="amount num ${cls}">${sign}${yen(e.amount)}</div></button>`;
+}
+function newestFirst(){ return db.entries.map((e,i) => ({e,i})).sort((a,b) => (a.e.date > b.e.date ? -1 : a.e.date < b.e.date ? 1 : b.i - a.i)).map(x => x.e); }
+
+function render(){
+  const r = periodRange();
+  $("period").textContent = `集計期間 ${r.s.getMonth()+1}/26〜${r.e.getMonth()+1}/25`;
+  const b = balances();
+  let actual = 0, income = 0, repay = 0;
+  for (const e of db.entries) {
+    if (!inPeriod(e.date, r)) continue;
+    if (e.type === "expense") actual += e.amount;
+    if (e.type === "income") income += e.amount;
+    if (e.type === "debt") repay += e.amount;
+  }
+  $("available").textContent = yen(b.wallet - b.cc + b.pasmo);
+  const tiles = arr => arr.map(x => `<div class="metric"><div class="label">${x[0]}</div><div class="value num">${yen(x[1])}</div></div>`).join("");
+  $("metrics").innerHTML = tiles([["財布", b.wallet], ["クレカ未払い", b.cc], ["PASMO残高", b.pasmo], ["借金残高", b.debt]]);
+  $("periodMetrics").innerHTML = tiles([["今期の実支出", actual], ["今期の収入", income], ["今期の借金返済", repay]]);
+  const list = newestFirst();
+  $("recent").innerHTML = list.length ? list.slice(0, 10).map(itemHTML).join("") : '<div class="empty">まだ記録がありません。上のボタンから入力してください。</div>';
+  $("showAll").hidden = list.length <= 10;
+  $("allList").innerHTML = list.length ? list.map(itemHTML).join("") : '<div class="empty">まだ記録がありません。</div>';
+}
+
+/* ---------- 画面切り替え ---------- */
+function show(name){
+  for (const id of ["home","history","formSection","settings"]) $(id).hidden = id !== name;
+  if (name === "settings") $("settings").style.display = "flex"; else $("settings").style.display = "";
+  document.querySelectorAll("nav button").forEach(b => b.toggleAttribute("aria-current", b.dataset.nav === name));
+  document.querySelectorAll("nav button[aria-current]").forEach(b => b.setAttribute("aria-current","page"));
+  if (name === "settings") { const b = balances(); $("setWallet").value = b.wallet; $("setPasmo").value = b.pasmo; $("setDebt").value = b.debt; updateOffline(); }
+  if (name !== "formSection") render();
+  window.scrollTo(0, 0);
+}
+let lastView = "home";
+document.querySelectorAll("[data-nav]").forEach(b => b.addEventListener("click", () => { lastView = b.dataset.nav; show(b.dataset.nav); }));
+$("showAll").addEventListener("click", () => { lastView = "history"; show("history"); });
+
+/* ---------- 入力フォーム ---------- */
+let mode = null, editingId = null;
+function opts(map, sel){ return Object.entries(map).map(([k,v]) => `<option value="${k}"${k===sel?" selected":""}>${v}</option>`).join(""); }
+function openForm(type, entry){
+  mode = type; editingId = entry ? entry.id : null;
+  $("formTitle").textContent = entry ? TITLES[type].replace("を記録","") + "を修正" : TITLES[type];
+  $("fdate").value = entry ? entry.date : today();
+  $("famount").value = entry ? entry.amount : "";
+  $("fname").value = entry ? entry.name : "";
+  $("fmemo").value = entry ? (entry.memo || "") : "";
+  let x = "";
+  if (type === "expense") {
+    x = `<div class="formgrid" style="padding:0"><div><label for="fsource">支払元</label><select id="fsource">${opts(SRC, entry?.src || "wallet")}</select></div>
+         <div><label for="fcat">費目</label><select id="fcat">${CATS.map(c => `<option${c===(entry?.cat||"食費")?" selected":""}>${c}</option>`).join("")}</select></div></div>`;
+  } else if (type === "income") {
+    x = `<label for="fdest">入金先</label><select id="fdest">${opts({wallet:"財布", pasmo:"PASMO"}, entry?.dest || "wallet")}</select>`;
+  } else if (type === "transfer") {
+    x = `<div class="formgrid" style="padding:0"><div><label for="ffrom">移動元</label><select id="ffrom">${opts(PLACE, entry?.from || "wallet")}</select></div>
+         <div><label for="fto">移動先</label><select id="fto">${opts({pasmo:"PASMO", wallet:"財布", cc_settle:"クレカ使用分（引落）"}, entry?.to || "pasmo")}</select></div></div>`;
+  } else if (type === "debt") {
+    x = `<p class="notice">返済額は財布から出て、借金残高が減ります。</p>`;
+  }
+  $("extra").innerHTML = x;
+  const legacy = entry && entry.legacy;
+  $("formNotice").hidden = !legacy;
+  $("formNotice").textContent = legacy ? "以前の家計簿から引き継いだ記録です。修正・削除しても残高は変わりません（集計にだけ反映されます）。" : "";
+  if (legacy) $("extra").querySelectorAll("select").forEach(s => { if (s.id !== "fcat") s.disabled = true; });
+  $("deleteRow").hidden = !entry;
+  disarm();
+  show("formSection");
+  if (!entry) setTimeout(() => $("famount").focus(), 50);
+}
+document.querySelectorAll("[data-form]").forEach(b => b.addEventListener("click", () => openForm(b.dataset.form)));
+document.addEventListener("click", ev => {
+  const it = ev.target.closest(".item[data-id]");
+  if (!it) return;
+  const e = db.entries.find(x => x.id === it.dataset.id);
+  if (e) openForm(e.type, e);
+});
+$("cancelBtn").addEventListener("click", () => show(lastView));
+
+$("entryForm").addEventListener("submit", ev => {
+  ev.preventDefault();
+  const amount = num($("famount").value);
+  if (!(amount > 0)) { toast("金額を1円以上で入力してください"); $("famount").focus(); return; }
+  const date = $("fdate").value || today();
+  const old = editingId ? db.entries.find(x => x.id === editingId) : null;
+  const e = {id: old ? old.id : uid(), type: mode, date, amount,
+    name: $("fname").value.trim() || DEFAULT_NAME[mode], memo: $("fmemo").value.trim()};
+  if (old && old.legacy) e.legacy = true;
+  if (mode === "expense") { e.src = $("fsource").value; e.cat = $("fcat").value; }
+  if (mode === "income") e.dest = $("fdest").value;
+  if (mode === "transfer") {
+    e.from = $("ffrom").value; e.to = $("fto").value;
+    if (e.from === e.to) { toast("移動元と移動先を別にしてください"); return; }
+  }
+  if (old && old.legacy) { // 引き継ぎ記録は残高に影響する項目を持たせない
+    delete e.src; delete e.dest; delete e.from; delete e.to;
+  }
+  if (old) db.entries[db.entries.indexOf(old)] = e; else db.entries.push(e);
+  if (persist()) { toast(old ? "修正しました" : "保存しました"); show(lastView); }
+});
+
+/* 削除：2回押しで確定 */
+let armTimer = null;
+function disarm(){ clearTimeout(armTimer); const b = $("deleteBtn"); b.classList.remove("armed"); b.textContent = "この記録を削除"; }
+$("deleteBtn").addEventListener("click", () => {
+  const b = $("deleteBtn");
+  if (!b.classList.contains("armed")) {
+    b.classList.add("armed"); b.textContent = "もう一度押すと削除します";
+    armTimer = setTimeout(disarm, 4000); return;
+  }
+  db.entries = db.entries.filter(x => x.id !== editingId);
+  if (persist()) { toast("削除しました"); show(lastView); }
+});
+
+/* ---------- 設定 ---------- */
+$("saveSettings").addEventListener("click", () => {
+  const cur = balances();
+  db.base.wallet += num($("setWallet").value) - cur.wallet;
+  db.base.pasmo += num($("setPasmo").value) - cur.pasmo;
+  db.base.debt += num($("setDebt").value) - cur.debt;
+  if (persist()) { render(); toast("残高を保存しました"); }
+});
+
+$("exportBtn").addEventListener("click", async () => {
+  const name = `kakeibo-backup-${today()}.json`;
+  const text = JSON.stringify(db, null, 2);
+  try {
+    const file = new File([text], name, {type:"application/json"});
+    if (navigator.canShare && navigator.canShare({files:[file]})) {
+      await navigator.share({files:[file], title:name});
+      return;
+    }
+  } catch(err) { if (err && err.name === "AbortError") return; }
+  const a = $("dlLink");
+  a.href = URL.createObjectURL(new Blob([text], {type:"application/json"}));
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+});
+
+let pending = null;
+$("importBtn").addEventListener("click", () => $("importFile").click());
+$("importFile").addEventListener("change", ev => {
+  const f = ev.target.files[0]; ev.target.value = "";
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try { pending = normalize(JSON.parse(r.result)); $("importConfirm").hidden = false; }
+    catch(e) { toast("このファイルは家計簿のバックアップとして読み込めませんでした"); }
+  };
+  r.readAsText(f);
+});
+$("importYes").addEventListener("click", () => {
+  if (!pending) return;
+  db = pending; pending = null; $("importConfirm").hidden = true;
+  if (persist()) { toast(`読み込みました（${db.entries.length}件）`); show("settings"); }
+});
+$("importNo").addEventListener("click", () => { pending = null; $("importConfirm").hidden = true; });
+
+let resetArmed = null;
+$("resetBtn").addEventListener("click", () => {
+  const b = $("resetBtn");
+  if (!resetArmed) {
+    b.classList.add("armed"); b.textContent = "もう一度押すと全データを削除します";
+    resetArmed = setTimeout(() => { resetArmed = null; b.classList.remove("armed"); b.textContent = "全データを削除"; }, 4000);
+    return;
+  }
+  clearTimeout(resetArmed); resetArmed = null;
+  db = blank(); persist();
+  try { localStorage.removeItem(LEGACY_KEY); } catch(e) {}
+  b.classList.remove("armed"); b.textContent = "全データを削除";
+  toast("全データを削除しました"); show("home");
+});
+
+/* ---------- オフライン対応 ---------- */
+function updateOffline(){
+  const ok = "serviceWorker" in navigator && !!navigator.serviceWorker.controller;
+  $("offDot").classList.toggle("ok", ok);
+  $("offText").textContent = ok ? "有効：ネットにつながっていなくても使えます" : "準備中：一度ネットにつながった状態で開き直すと有効になります";
+}
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  navigator.serviceWorker.register("sw.js").then(() => navigator.serviceWorker.ready).then(updateOffline).catch(() => {});
+  navigator.serviceWorker.addEventListener("controllerchange", updateOffline);
+}
+
+/* ---------- トースト ---------- */
+let toastTimer = null;
+function toast(msg){
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+render();
+</script>
+</body>
+</html>

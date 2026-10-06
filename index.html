@@ -53,8 +53,15 @@ h2{font-size:15px;margin:0 0 10px}
 .metric .value{font-size:18px;font-weight:700;margin-top:2px}
 .grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px}
 .grid3 .metric{padding:8px 10px}.grid3 .label{font-size:11px}.grid3 .value{font-size:15px}
-.btns{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
-@media (max-width:520px){.btns{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.btns{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+@media (max-width:620px){.btns{grid-template-columns:repeat(2,minmax(0,1fr))}.btns .wide{grid-column:1/-1}}
+.ccsum{margin-top:10px;background:var(--sunken);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+.cclist{display:flex;flex-direction:column;max-height:45vh;overflow-y:auto;margin-bottom:6px;border-bottom:1px solid var(--line)}
+.ccrow{display:grid;grid-template-columns:auto 3.2em minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 0;margin:0;color:var(--ink);font-size:14px;border-top:1px solid var(--line)}
+.ccrow:first-child{border-top:0}
+.ccrow input{width:20px;height:20px;padding:0;margin:0;accent-color:var(--accent)}
+.ccrow .d{color:var(--muted);font-size:13px}.ccrow .n{overflow-wrap:anywhere}
+.row2{display:flex;justify-content:space-between;gap:12px;font-size:14px}.row2.muted{font-size:12px;color:var(--muted)}
 button{font:inherit;border:0;border-radius:10px;padding:11px 12px;background:var(--accent);color:var(--accent-ink);font-weight:600;cursor:pointer;touch-action:manipulation}
 button.secondary{background:var(--sunken);color:var(--ink)}
 button.danger{background:transparent;color:var(--minus);border:1px solid color-mix(in srgb,var(--minus) 45%,transparent)}
@@ -116,6 +123,7 @@ nav button[aria-current="page"]{background:var(--accent);color:var(--accent-ink)
       <button type="button" data-form="income">収入</button>
       <button type="button" data-form="transfer">資金移動</button>
       <button type="button" data-form="debt">借金返済</button>
+      <button type="button" data-form="ccpay" class="wide">クレカ引落</button>
     </div>
   </div>
   <div class="card">
@@ -139,8 +147,8 @@ nav button[aria-current="page"]{background:var(--accent);color:var(--accent-ink)
   <form class="card" id="entryForm" novalidate>
     <h2 id="formTitle"></h2>
     <div class="formgrid">
-      <div><label for="fdate">日付</label><input id="fdate" type="date" required></div>
-      <div><label for="famount">金額（円）</label><input id="famount" type="number" inputmode="numeric" min="1" step="1" required></div>
+      <div><label for="fdate" id="fdateLabel">日付</label><input id="fdate" type="date" required></div>
+      <div id="amountWrap"><label for="famount">金額（円）</label><input id="famount" type="number" inputmode="numeric" min="1" step="1" required></div>
       <div class="full"><label for="fname">内容</label><input id="fname" autocomplete="off" placeholder="例：昼食、給料、PASMOチャージ"></div>
       <div class="full" id="extra"></div>
       <div class="full"><label for="fmemo">メモ（任意）</label><input id="fmemo" autocomplete="off"></div>
@@ -207,10 +215,10 @@ nav button[aria-current="page"]{background:var(--accent);color:var(--accent-ink)
 const KEY = "kakeibo_v2";
 const LEGACY_KEY = "aoi_kakeibo_v1";
 const CATS = ["食費","日用品","交通費","医療・健康","衣服・美容","趣味・娯楽","交際費","住居","水道光熱費","通信費","サブスク","仕事・学習","その他"];
-const TITLES = {expense:"支出を記録", income:"収入を記録", transfer:"資金移動", debt:"借金返済"};
-const DEFAULT_NAME = {expense:"支出", income:"収入", transfer:"資金移動", debt:"借金返済"};
+const TITLES = {expense:"支出を記録", income:"収入を記録", transfer:"資金移動", debt:"借金返済", ccpay:"クレカ引落"};
+const DEFAULT_NAME = {expense:"支出", income:"収入", transfer:"資金移動", debt:"借金返済", ccpay:"クレカ引落"};
 const SRC = {wallet:"財布", cc:"クレカ", pasmo:"PASMO"};
-const PLACE = {cc:"クレカ", wallet:"財布", pasmo:"PASMO", cc_settle:"クレカ使用分（引落）"};
+const PLACE = {cc:"クレカ", wallet:"財布", pasmo:"PASMO"};
 const $ = id => document.getElementById(id);
 
 /* ---------- データ ---------- */
@@ -223,10 +231,19 @@ function normalize(o){
   if (o.v === 2 && Array.isArray(o.entries)) {
     const b = o.base || {};
     return {v:2, base:{wallet:num(b.wallet),pasmo:num(b.pasmo),debt:num(b.debt),cc:num(b.cc)},
-      entries:o.entries.filter(e => e && TITLES[e.type]).map(e => ({...e, id:e.id || uid(), amount:num(e.amount)}))};
+      entries:o.entries.filter(e => e && TITLES[e.type]).map(e => migrate({...e, id:e.id || uid(), amount:num(e.amount)}))};
   }
   if (Array.isArray(o.entries) && "wallet" in o) return fromV1(o);
   throw new Error("bad");
+}
+function migrate(e){
+  if (e.type === "transfer" && !e.legacy && (e.from === "cc_settle" || e.to === "cc_settle")) {
+    const n = {...e, type:"ccpay", close:e.date};
+    delete n.from; delete n.to;
+    if (!n.name || n.name === "資金移動") n.name = "クレカ引落";
+    return n;
+  }
+  return e;
 }
 /* 以前の家計簿（v1）のデータ：残高はそのまま引き継ぎ、記録は履歴として取り込む（残高には影響させない） */
 function fromV1(o){
@@ -274,10 +291,33 @@ function apply(s, e){
     if (e.from === "pasmo") s.pasmo -= a;
     if (e.to === "wallet") s.wallet += a;
     if (e.to === "pasmo") s.pasmo += a;
-    if (e.from === "cc_settle") { s.cc -= Math.min(s.cc, a); s.wallet -= a; }
+  } else if (e.type === "ccpay") {                // クレカ引落：財布から払い、未払いが減る
+    s.wallet -= a; s.cc -= a;
   } else if (e.type === "debt") {
     s.wallet -= a; s.debt = Math.max(0, s.debt - a);
   }
+}
+/* クレカ利用（未払いの元になるもの）の一覧 */
+function ccUses(){
+  const list = [];
+  if (db.base.cc > 0) list.push({id:"base", date:"", name:"以前からの未払い", amount:db.base.cc, i:-1});
+  db.entries.forEach((e,i) => {
+    if (!e.legacy && ((e.type === "expense" && e.src === "cc") || (e.type === "transfer" && e.from === "cc")))
+      list.push({id:e.id, date:e.date, name:e.name, amount:e.amount, i});
+  });
+  return list.sort((a,b) => a.date < b.date ? -1 : a.date > b.date ? 1 : a.i - b.i);
+}
+/* まだ引き落とされていないクレカ利用（excludeId の引落は計算から外す＝修正中の引落） */
+function unpaidUses(excludeId){
+  const uses = ccUses(), rem = new Map(uses.map(u => [u.id, u.amount]));
+  const pays = db.entries.filter(e => e.type === "ccpay" && e.id !== excludeId && !e.legacy);
+  for (const p of pays) if (Array.isArray(p.items)) for (const it of p.items) if (rem.has(it.id)) rem.set(it.id, rem.get(it.id) - it.amt);
+  // 内訳を持たない引落（以前の形式）は古い利用から順に充てる
+  for (const p of pays.filter(p => !Array.isArray(p.items)).sort((a,b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0)) {
+    let r = p.amount;
+    for (const u of uses) { if (r <= 0) break; const x = Math.min(Math.max(0, rem.get(u.id)), r); rem.set(u.id, rem.get(u.id) - x); r -= x; }
+  }
+  return uses.map(u => ({...u, due: rem.get(u.id)})).filter(u => u.due > 0);
 }
 function balances(){
   const s = {...db.base};
@@ -306,11 +346,12 @@ function itemHTML(e){
   let sub = [fmtDate(e.date)];
   if (e.type === "expense") { if (e.cat) sub.push(e.cat); if (e.src) sub.push(SRC[e.src]); }
   if (e.type === "income") sub.push("入金先：" + (e.dest === "pasmo" ? "PASMO" : "財布"));
-  if (e.type === "transfer" && e.from) sub.push(`${PLACE[e.from]} → ${PLACE[e.to]}`);
+  if (e.type === "transfer" && e.from) sub.push(`${PLACE[e.from] || "?"} → ${PLACE[e.to] || "?"}`);
+  if (e.type === "ccpay" && e.close) sub.push(`締め日 ${fmtDate(e.close)}` + (Array.isArray(e.items) ? `・${e.items.length}件` : ""));
   if (e.memo) sub.push(e.memo);
   const cls = e.type === "income" ? "plus" : e.type === "transfer" ? "move" : "minus";
   const sign = e.type === "income" ? "+" : e.type === "transfer" ? "" : "−";
-  return `<button type="button" class="item" data-id="${esc(e.id)}"><div><div class="name">${esc(e.name)}${e.type==="transfer"?'<span class="chip">移動</span>':""}${e.type==="debt"?'<span class="chip">返済</span>':""}</div><div class="sub">${sub.map(esc).join(" ・ ")}</div></div><div class="amount num ${cls}">${sign}${yen(e.amount)}</div></button>`;
+  return `<button type="button" class="item" data-id="${esc(e.id)}"><div><div class="name">${esc(e.name)}${e.type==="transfer"?'<span class="chip">移動</span>':""}${e.type==="debt"?'<span class="chip">返済</span>':""}${e.type==="ccpay"?'<span class="chip">引落</span>':""}</div><div class="sub">${sub.map(esc).join(" ・ ")}</div></div><div class="amount num ${cls}">${sign}${yen(e.amount)}</div></button>`;
 }
 function newestFirst(){ return db.entries.map((e,i) => ({e,i})).sort((a,b) => (a.e.date > b.e.date ? -1 : a.e.date < b.e.date ? 1 : b.i - a.i)).map(x => x.e); }
 
@@ -350,7 +391,7 @@ document.querySelectorAll("[data-nav]").forEach(b => b.addEventListener("click",
 $("showAll").addEventListener("click", () => { lastView = "history"; show("history"); });
 
 /* ---------- 入力フォーム ---------- */
-let mode = null, editingId = null;
+let mode = null, editingId = null, ccWarned = false;
 function opts(map, sel){ return Object.entries(map).map(([k,v]) => `<option value="${k}"${k===sel?" selected":""}>${v}</option>`).join(""); }
 function openForm(type, entry){
   mode = type; editingId = entry ? entry.id : null;
@@ -359,6 +400,7 @@ function openForm(type, entry){
   $("famount").value = entry ? entry.amount : "";
   $("fname").value = entry ? entry.name : "";
   $("fmemo").value = entry ? (entry.memo || "") : "";
+  $("fdateLabel").textContent = type === "ccpay" ? "引落日" : "日付";
   let x = "";
   if (type === "expense") {
     x = `<div class="formgrid" style="padding:0"><div><label for="fsource">支払元</label><select id="fsource">${opts(SRC, entry?.src || "wallet")}</select></div>
@@ -367,19 +409,63 @@ function openForm(type, entry){
     x = `<label for="fdest">入金先</label><select id="fdest">${opts({wallet:"財布", pasmo:"PASMO"}, entry?.dest || "wallet")}</select>`;
   } else if (type === "transfer") {
     x = `<div class="formgrid" style="padding:0"><div><label for="ffrom">移動元</label><select id="ffrom">${opts(PLACE, entry?.from || "cc")}</select></div>
-         <div><label for="fto">移動先</label><select id="fto">${opts({pasmo:"PASMO", wallet:"財布", cc_settle:"クレカ使用分（引落）"}, entry?.to || "pasmo")}</select></div></div>`;
+         <div><label for="fto">移動先</label><select id="fto">${opts({pasmo:"PASMO", wallet:"財布"}, entry?.to || "pasmo")}</select></div></div>`;
+  } else if (type === "ccpay") {
+    x = `<label for="fclose">締め日</label><input id="fclose" type="date" value="${esc(entry?.close || defaultClose())}">
+         <p class="notice">締め日までの利用に自動でチェックが入ります。翌月扱いになる利用はチェックを外し、締め日より後でも今回の請求に入っている利用はチェックを付けてください。チェックしなかった利用は次回の引落に残ります。</p>
+         <div class="ccsum" id="ccsum"></div>`;
   } else if (type === "debt") {
     x = `<p class="notice">返済額は財布から出て、借金残高が減ります。</p>`;
   }
   $("extra").innerHTML = x;
+  // クレカ引落は「締め日」を金額より先に表示する
+  if (type === "ccpay") $("amountWrap").before($("extra")); else $("fname").parentElement.after($("extra"));
+  if (type === "ccpay") {
+    ccManual = new Map();
+    ccEditItems = entry && Array.isArray(entry.items) ? new Set(entry.items.map(x => x.id)) : null;
+    $("fclose").addEventListener("change", () => { ccEditItems = null; updateCcSum(true); });
+    $("ccsum").addEventListener("change", ev => {
+      const cb = ev.target.closest("input[data-cc]"); if (!cb) return;
+      ccManual.set(cb.dataset.cc, cb.checked); updateCcSum(true);
+    });
+    updateCcSum(!entry);
+  }
   const legacy = entry && entry.legacy;
   $("formNotice").hidden = !legacy;
   $("formNotice").textContent = legacy ? "以前の家計簿から引き継いだ記録です。修正・削除しても残高は変わりません（集計にだけ反映されます）。" : "";
   if (legacy) $("extra").querySelectorAll("select").forEach(s => { if (s.id !== "fcat") s.disabled = true; });
   $("deleteRow").hidden = !entry;
-  disarm();
+  disarm(); ccWarned = false;
   show("formSection");
-  if (!entry) setTimeout(() => $("famount").focus(), 50);
+  if (!entry && type !== "ccpay") setTimeout(() => $("famount").focus(), 50);
+}
+/* 締め日の初期値：前回の引落の締め日の1か月後（初回は今日） */
+function defaultClose(){
+  const prev = db.entries.filter(e => e.type === "ccpay" && e.close).map(e => e.close).sort().pop();
+  if (!prev) return today();
+  const [y,m,d] = prev.split("-").map(Number);
+  const last = new Date(y, m + 1, 0).getDate();
+  const wasMonthEnd = d === new Date(y, m, 0).getDate();   // 前回が月末締めなら次も月末
+  return ymd(new Date(y, m, wasMonthEnd ? last : Math.min(d, last)));
+}
+let ccManual = new Map(), ccEditItems = null;
+function ccSelection(){
+  const close = $("fclose").value || today();
+  const list = unpaidUses(editingId);
+  for (const u of list) {
+    u.on = ccManual.has(u.id) ? ccManual.get(u.id) : ccEditItems ? ccEditItems.has(u.id) : (u.id === "base" || u.date <= close);
+  }
+  return list;
+}
+function updateCcSum(setAmount){
+  const list = ccSelection();
+  const sel = list.filter(u => u.on), selSum = sel.reduce((a,u) => a + u.due, 0), total = list.reduce((a,u) => a + u.due, 0);
+  const rows = list.length ? list.map(u => `<label class="ccrow"><input type="checkbox" data-cc="${esc(u.id)}"${u.on ? " checked" : ""}><span class="d num">${u.date ? fmtDate(u.date) : "—"}</span><span class="n">${esc(u.name)}${u.due < u.amount ? '<span class="chip">一部支払済</span>' : ""}</span><span class="num">${yen(u.due)}</span></label>`).join("")
+    : '<div class="empty">未払いのクレカ利用はありません。</div>';
+  $("ccsum").innerHTML = `<div class="cclist">${rows}</div>
+    <div class="row2"><span>今回引き落とす分（${sel.length}件）</span><b class="num">${yen(selSum)}</b></div>
+    <div class="row2 muted"><span>未払いの合計</span><span class="num">${yen(total)}</span></div>`;
+  if (setAmount) $("famount").value = selSum || "";
 }
 document.querySelectorAll("[data-form]").forEach(b => b.addEventListener("click", () => openForm(b.dataset.form)));
 document.addEventListener("click", ev => {
@@ -407,6 +493,16 @@ $("entryForm").addEventListener("submit", ev => {
     if (e.from === "cc" && e.to !== "pasmo") { toast("クレカからはPASMOへのチャージだけ記録できます"); return; }
     if (e.from === "cc" && !$("fname").value.trim()) e.name = "PASMOチャージ";
   }
+  if (mode === "ccpay") {
+    e.close = $("fclose").value || date;
+    const list = ccSelection();
+    e.items = list.filter(u => u.on).map(u => ({id:u.id, amt:u.due}));
+    const total = list.reduce((a,u) => a + u.due, 0);
+    if (amount > total) {
+      if (!ccWarned) { ccWarned = true; toast(`未払いの合計（${yen(total)}）より多い金額です。もう一度保存を押すとそのまま保存します`); return; }
+    }
+  }
+  ccWarned = false;
   if (old && old.legacy) { // 引き継ぎ記録は残高に影響する項目を持たせない
     delete e.src; delete e.dest; delete e.from; delete e.to;
   }
@@ -501,7 +597,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 let toastTimer = null;
 function toast(msg){
   const t = $("toast"); t.textContent = msg; t.classList.add("show");
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), Math.max(2200, msg.length * 90));
 }
 
 render();

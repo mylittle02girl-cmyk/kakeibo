@@ -210,7 +210,7 @@ const CATS = ["食費","日用品","交通費","医療・健康","衣服・美�
 const TITLES = {expense:"支出を記録", income:"収入を記録", transfer:"資金移動", debt:"借金返済"};
 const DEFAULT_NAME = {expense:"支出", income:"収入", transfer:"資金移動", debt:"借金返済"};
 const SRC = {wallet:"財布", cc:"クレカ", pasmo:"PASMO"};
-const PLACE = {wallet:"財布", pasmo:"PASMO", cc_settle:"クレカ使用分（引落）"};
+const PLACE = {cc:"クレカ", wallet:"財布", pasmo:"PASMO", cc_settle:"クレカ使用分（引落）"};
 const $ = id => document.getElementById(id);
 
 /* ---------- データ ---------- */
@@ -269,6 +269,7 @@ function apply(s, e){
   } else if (e.type === "income") {
     if (e.dest === "pasmo") s.pasmo += a; else s.wallet += a;
   } else if (e.type === "transfer") {
+    if (e.from === "cc") s.cc += a;            // クレカでPASMOにチャージ：未払いが増える
     if (e.from === "wallet") s.wallet -= a;
     if (e.from === "pasmo") s.pasmo -= a;
     if (e.to === "wallet") s.wallet += a;
@@ -365,7 +366,7 @@ function openForm(type, entry){
   } else if (type === "income") {
     x = `<label for="fdest">入金先</label><select id="fdest">${opts({wallet:"財布", pasmo:"PASMO"}, entry?.dest || "wallet")}</select>`;
   } else if (type === "transfer") {
-    x = `<div class="formgrid" style="padding:0"><div><label for="ffrom">移動元</label><select id="ffrom">${opts(PLACE, entry?.from || "wallet")}</select></div>
+    x = `<div class="formgrid" style="padding:0"><div><label for="ffrom">移動元</label><select id="ffrom">${opts(PLACE, entry?.from || "cc")}</select></div>
          <div><label for="fto">移動先</label><select id="fto">${opts({pasmo:"PASMO", wallet:"財布", cc_settle:"クレカ使用分（引落）"}, entry?.to || "pasmo")}</select></div></div>`;
   } else if (type === "debt") {
     x = `<p class="notice">返済額は財布から出て、借金残高が減ります。</p>`;
@@ -403,6 +404,8 @@ $("entryForm").addEventListener("submit", ev => {
   if (mode === "transfer") {
     e.from = $("ffrom").value; e.to = $("fto").value;
     if (e.from === e.to) { toast("移動元と移動先を別にしてください"); return; }
+    if (e.from === "cc" && e.to !== "pasmo") { toast("クレカからはPASMOへのチャージだけ記録できます"); return; }
+    if (e.from === "cc" && !$("fname").value.trim()) e.name = "PASMOチャージ";
   }
   if (old && old.legacy) { // 引き継ぎ記録は残高に影響する項目を持たせない
     delete e.src; delete e.dest; delete e.from; delete e.to;

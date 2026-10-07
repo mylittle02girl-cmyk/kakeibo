@@ -51,10 +51,11 @@ h2{font-size:15px;margin:0 0 10px}
 .metric{background:var(--sunken);border-radius:10px;padding:10px 12px}
 .metric .label{font-size:12px;color:var(--muted)}
 .metric .value{font-size:18px;font-weight:700;margin-top:2px}
-.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px}
+.grid3{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px}
+@media (max-width:520px){.grid3{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .grid3 .metric{padding:8px 10px}.grid3 .label{font-size:11px}.grid3 .value{font-size:15px}
-.btns{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
-@media (max-width:620px){.btns{grid-template-columns:repeat(2,minmax(0,1fr))}.btns .wide{grid-column:1/-1}}
+.btns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+@media (max-width:420px){.btns{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .ccsum{margin-top:10px;background:var(--sunken);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:4px}
 .cclist{display:flex;flex-direction:column;max-height:45vh;overflow-y:auto;margin-bottom:6px;border-bottom:1px solid var(--line)}
 .ccrow{display:grid;grid-template-columns:auto 3.2em minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 0;margin:0;color:var(--ink);font-size:14px;border-top:1px solid var(--line)}
@@ -122,8 +123,9 @@ nav button[aria-current="page"]{background:var(--accent);color:var(--accent-ink)
       <button type="button" data-form="expense">支出</button>
       <button type="button" data-form="income">収入</button>
       <button type="button" data-form="transfer">資金移動</button>
+      <button type="button" data-form="ccpay">クレカ引落</button>
+      <button type="button" data-form="borrow">借入</button>
       <button type="button" data-form="debt">借金返済</button>
-      <button type="button" data-form="ccpay" class="wide">クレカ引落</button>
     </div>
   </div>
   <div class="card">
@@ -215,8 +217,8 @@ nav button[aria-current="page"]{background:var(--accent);color:var(--accent-ink)
 const KEY = "kakeibo_v2";
 const LEGACY_KEY = "aoi_kakeibo_v1";
 const CATS = ["食費","日用品","交通費","医療・健康","衣服・美容","趣味・娯楽","交際費","住居","水道光熱費","通信費","サブスク","仕事・学習","その他"];
-const TITLES = {expense:"支出を記録", income:"収入を記録", transfer:"資金移動", debt:"借金返済", ccpay:"クレカ引落"};
-const DEFAULT_NAME = {expense:"支出", income:"収入", transfer:"資金移動", debt:"借金返済", ccpay:"クレカ引落"};
+const TITLES = {expense:"支出を記録", income:"収入を記録", transfer:"資金移動", debt:"借金返済", borrow:"借入を記録", ccpay:"クレカ引落"};
+const DEFAULT_NAME = {expense:"支出", income:"収入", transfer:"資金移動", debt:"借金返済", borrow:"借入", ccpay:"クレカ引落"};
 const SRC = {wallet:"財布", cc:"クレカ", pasmo:"PASMO"};
 const PLACE = {cc:"クレカ", wallet:"財布", pasmo:"PASMO"};
 const $ = id => document.getElementById(id);
@@ -293,6 +295,9 @@ function apply(s, e){
     if (e.to === "pasmo") s.pasmo += a;
   } else if (e.type === "ccpay") {                // クレカ引落：財布から払い、未払いが減る
     s.wallet -= a; s.cc -= a;
+  } else if (e.type === "borrow") {               // 借入：受け取ったお金が入り、借金が増える
+    if (e.dest === "pasmo") s.pasmo += a; else s.wallet += a;
+    s.debt += a;
   } else if (e.type === "debt") {
     s.wallet -= a; s.debt = Math.max(0, s.debt - a);
   }
@@ -345,13 +350,13 @@ function fmtDate(s){ const [y,m,d] = String(s).split("-"); return y ? `${Number(
 function itemHTML(e){
   let sub = [fmtDate(e.date)];
   if (e.type === "expense") { if (e.cat) sub.push(e.cat); if (e.src) sub.push(SRC[e.src]); }
-  if (e.type === "income") sub.push("入金先：" + (e.dest === "pasmo" ? "PASMO" : "財布"));
+  if (e.type === "income" || e.type === "borrow") sub.push("入金先：" + (e.dest === "pasmo" ? "PASMO" : "財布"));
   if (e.type === "transfer" && e.from) sub.push(`${PLACE[e.from] || "?"} → ${PLACE[e.to] || "?"}`);
   if (e.type === "ccpay" && e.close) sub.push(`締め日 ${fmtDate(e.close)}` + (Array.isArray(e.items) ? `・${e.items.length}件` : ""));
   if (e.memo) sub.push(e.memo);
-  const cls = e.type === "income" ? "plus" : e.type === "transfer" ? "move" : "minus";
-  const sign = e.type === "income" ? "+" : e.type === "transfer" ? "" : "−";
-  return `<button type="button" class="item" data-id="${esc(e.id)}"><div><div class="name">${esc(e.name)}${e.type==="transfer"?'<span class="chip">移動</span>':""}${e.type==="debt"?'<span class="chip">返済</span>':""}${e.type==="ccpay"?'<span class="chip">引落</span>':""}</div><div class="sub">${sub.map(esc).join(" ・ ")}</div></div><div class="amount num ${cls}">${sign}${yen(e.amount)}</div></button>`;
+  const cls = e.type === "income" ? "plus" : (e.type === "transfer" || e.type === "borrow") ? "move" : "minus";
+  const sign = (e.type === "income" || e.type === "borrow") ? "+" : e.type === "transfer" ? "" : "−";
+  return `<button type="button" class="item" data-id="${esc(e.id)}"><div><div class="name">${esc(e.name)}${e.type==="transfer"?'<span class="chip">移動</span>':""}${e.type==="debt"?'<span class="chip">返済</span>':""}${e.type==="borrow"?'<span class="chip">借入</span>':""}${e.type==="ccpay"?'<span class="chip">引落</span>':""}</div><div class="sub">${sub.map(esc).join(" ・ ")}</div></div><div class="amount num ${cls}">${sign}${yen(e.amount)}</div></button>`;
 }
 function newestFirst(){ return db.entries.map((e,i) => ({e,i})).sort((a,b) => (a.e.date > b.e.date ? -1 : a.e.date < b.e.date ? 1 : b.i - a.i)).map(x => x.e); }
 
@@ -359,17 +364,18 @@ function render(){
   const r = periodRange();
   $("period").textContent = `集計期間 ${r.s.getMonth()+1}/26〜${r.e.getMonth()+1}/25`;
   const b = balances();
-  let actual = 0, income = 0, repay = 0;
+  let actual = 0, income = 0, repay = 0, borrowed = 0;
   for (const e of db.entries) {
     if (!inPeriod(e.date, r)) continue;
     if (e.type === "expense") actual += e.amount;
     if (e.type === "income") income += e.amount;
     if (e.type === "debt") repay += e.amount;
+    if (e.type === "borrow") borrowed += e.amount;
   }
   $("available").textContent = yen(b.wallet - b.cc + b.pasmo);
   const tiles = arr => arr.map(x => `<div class="metric"><div class="label">${x[0]}</div><div class="value num">${yen(x[1])}</div></div>`).join("");
   $("metrics").innerHTML = tiles([["財布", b.wallet], ["クレカ未払い", b.cc], ["PASMO残高", b.pasmo], ["借金残高", b.debt]]);
-  $("periodMetrics").innerHTML = tiles([["今期の実支出", actual], ["今期の収入", income], ["今期の借金返済", repay]]);
+  $("periodMetrics").innerHTML = tiles([["今期の実支出", actual], ["今期の収入", income], ["今期の借入", borrowed], ["今期の借金返済", repay]]);
   const list = newestFirst();
   $("recent").innerHTML = list.length ? list.slice(0, 10).map(itemHTML).join("") : '<div class="empty">まだ記録がありません。上のボタンから入力してください。</div>';
   $("showAll").hidden = list.length <= 10;
@@ -414,6 +420,9 @@ function openForm(type, entry){
     x = `<label for="fclose">締め日</label><input id="fclose" type="date" value="${esc(entry?.close || defaultClose())}">
          <p class="notice">締め日までの利用に自動でチェックが入ります。翌月扱いになる利用はチェックを外し、締め日より後でも今回の請求に入っている利用はチェックを付けてください。チェックしなかった利用は次回の引落に残ります。</p>
          <div class="ccsum" id="ccsum"></div>`;
+  } else if (type === "borrow") {
+    x = `<label for="fdest">入金先</label><select id="fdest">${opts({wallet:"財布", pasmo:"PASMO"}, entry?.dest || "wallet")}</select>
+         <p class="notice">借りたお金が入金先に入り、借金残高が増えます。収入には計上しません。</p>`;
   } else if (type === "debt") {
     x = `<p class="notice">返済額は財布から出て、借金残高が減ります。</p>`;
   }
@@ -486,7 +495,7 @@ $("entryForm").addEventListener("submit", ev => {
     name: $("fname").value.trim() || DEFAULT_NAME[mode], memo: $("fmemo").value.trim()};
   if (old && old.legacy) e.legacy = true;
   if (mode === "expense") { e.src = $("fsource").value; e.cat = $("fcat").value; }
-  if (mode === "income") e.dest = $("fdest").value;
+  if (mode === "income" || mode === "borrow") e.dest = $("fdest").value;
   if (mode === "transfer") {
     e.from = $("ffrom").value; e.to = $("fto").value;
     if (e.from === e.to) { toast("移動元と移動先を別にしてください"); return; }

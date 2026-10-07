@@ -1,5 +1,5 @@
 // 家計簿：オフライン用キャッシュ。アプリを更新したら CACHE の番号を上げる
-const CACHE = "kakeibo-v2-4";
+const CACHE = "kakeibo-v2-5";
 const FILES = ["./", "./index.html", "./manifest.json", "./icon-180.png", "./icon-512.png"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

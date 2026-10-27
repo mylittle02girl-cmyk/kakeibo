@@ -110,10 +110,16 @@ nav button[aria-current="page"]{background:var(--accent);color:var(--accent-ink)
 <main>
 <!-- ホーム -->
 <section id="home" class="stack" style="display:flex;flex-direction:column;gap:12px">
+  <div class="card" id="splitNotice" hidden>
+    <h2>銀行と財布を分けました</h2>
+    <p class="notice" style="margin-top:0">これまでの「財布」の残高は、いったんすべて「銀行」に入れてあります。設定の「残高の調整」で、今の銀行と財布の残高を入力してください。</p>
+    <div class="actions"><button type="button" id="goAdjust">残高の調整を開く</button></div>
+  </div>
   <div class="card hero">
     <div class="label">実質的に使えるお金</div>
     <div class="big num" id="available"></div>
-    <div class="formula">財布 − クレカ未払い ＋ PASMO</div>
+    <div class="formula">銀行 ＋ 財布 − クレカ未払い ＋ PASMO ＋ PayPay</div>
+    <div class="formula num" id="cashTotal"></div>
     <div class="grid" id="metrics"></div>
     <div class="grid3" id="periodMetrics"></div>
   </div>
@@ -170,9 +176,11 @@ nav button[aria-current="page"]{background:var(--accent);color:var(--accent-ink)
 <section id="settings" hidden style="flex-direction:column;gap:12px">
   <div class="card">
     <h2>残高の調整</h2>
-    <p class="notice" style="margin-top:0">今の財布・PASMO・借金の残高を入力すると、その金額に合わせます。調整は支出や収入には計上しません。</p>
-    <label for="setWallet">財布（銀行口座・現金の合計）</label><input id="setWallet" type="number" inputmode="numeric">
+    <p class="notice" style="margin-top:0">今の銀行・財布・PASMO・PayPay・借金の残高を入力すると、その金額に合わせます。調整は支出や収入には計上しません。</p>
+    <label for="setBank">銀行口座の残高</label><input id="setBank" type="number" inputmode="numeric">
+    <label for="setCash">財布（現金）</label><input id="setCash" type="number" inputmode="numeric">
     <label for="setPasmo">PASMO残高</label><input id="setPasmo" type="number" inputmode="numeric">
+    <label for="setPaypay">PayPay残高</label><input id="setPaypay" type="number" inputmode="numeric">
     <label for="setDebt">借金残高</label><input id="setDebt" type="number" inputmode="numeric">
     <div class="actions"><button type="button" id="saveSettings">残高を保存</button></div>
   </div>
@@ -214,26 +222,35 @@ nav button[aria-current="page"]{background:var(--accent);color:var(--accent-ink)
 
 <script>
 "use strict";
-const KEY = "kakeibo_v2";
+const KEY = "kakeibo_v3";
+const V2_KEY = "kakeibo_v2";          // 1つ前の形式（財布＝銀行＋現金）。読み込み元としてだけ使い、書き換えない
 const LEGACY_KEY = "aoi_kakeibo_v1";
+const ACCS = ["bank","cash","pasmo","paypay"];   // 資産（残高を持つ場所）
 const CATS = ["食費","日用品","交通費","医療・健康","衣服・美容","趣味・娯楽","交際費","住居","水道光熱費","通信費","サブスク","仕事・学習","その他"];
 const TITLES = {expense:"支出を記録", income:"収入を記録", transfer:"資金移動", debt:"借金返済", borrow:"借入を記録", ccpay:"クレカ引落"};
 const DEFAULT_NAME = {expense:"支出", income:"収入", transfer:"資金移動", debt:"借金返済", borrow:"借入", ccpay:"クレカ引落"};
-const SRC = {wallet:"財布", cc:"クレカ", pasmo:"PASMO"};
-const PLACE = {cc:"クレカ", wallet:"財布", pasmo:"PASMO"};
+const NAMES = {bank:"銀行", cash:"財布", cc:"クレカ", pasmo:"PASMO", paypay:"PayPay"};
+const SRC = {cash:"財布", cc:"クレカ", pasmo:"PASMO", paypay:"PayPay", bank:"銀行"};       // 支出の支払元
+const DEST = {bank:"銀行", cash:"財布", pasmo:"PASMO"};                                  // 収入・借入の入金先
+const FROM = {cc:"クレカ", bank:"銀行", cash:"財布", pasmo:"PASMO"};                       // 資金移動の移動元
+const TO = {pasmo:"PASMO", paypay:"PayPay", bank:"銀行", cash:"財布"};                     // 資金移動の移動先
+const PAYFROM = {bank:"銀行", cash:"財布"};                                               // 借金返済の支払元
 const $ = id => document.getElementById(id);
 
 /* ---------- データ ---------- */
-function blank(){ return {v:2, base:{wallet:0,pasmo:0,debt:0,cc:0}, entries:[]}; }
+function blank(){ return {v:3, base:{bank:0,cash:0,pasmo:0,paypay:0,debt:0,cc:0}, entries:[]}; }
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function num(x){ const n = Math.round(Number(x)); return Number.isFinite(n) ? n : 0; }
 
 function normalize(o){
   if (!o || typeof o !== "object") throw new Error("bad");
-  if (o.v === 2 && Array.isArray(o.entries)) {
+  if ((o.v === 2 || o.v === 3) && Array.isArray(o.entries)) {
     const b = o.base || {};
-    return {v:2, base:{wallet:num(b.wallet),pasmo:num(b.pasmo),debt:num(b.debt),cc:num(b.cc)},
-      entries:o.entries.filter(e => e && TITLES[e.type]).map(e => migrate({...e, id:e.id || uid(), amount:num(e.amount)}))};
+    const v2 = o.v === 2;   // v2の「財布」は銀行＋現金の合計だったので、いったん銀行に入れる
+    const entries = o.entries.filter(e => e && TITLES[e.type]).map(e => migrate({...e, id:e.id || uid(), amount:num(e.amount)}));
+    const out = {v:3, base:{bank:num(v2 ? b.wallet : b.bank), cash:num(b.cash), pasmo:num(b.pasmo), paypay:num(b.paypay), debt:num(b.debt), cc:num(b.cc)}, entries};
+    if (v2 ? (entries.length > 0 || num(b.wallet) !== 0) : o.split) out.split = true;
+    return out;
   }
   if (Array.isArray(o.entries) && "wallet" in o) return fromV1(o);
   throw new Error("bad");
@@ -243,8 +260,10 @@ function migrate(e){
     const n = {...e, type:"ccpay", close:e.date};
     delete n.from; delete n.to;
     if (!n.name || n.name === "資金移動") n.name = "クレカ引落";
-    return n;
+    e = n;
   }
+  // v2の「財布（wallet）」は銀行として扱う
+  for (const k of ["src","dest","from","to"]) if (e[k] === "wallet") e = {...e, [k]:"bank"};
   return e;
 }
 /* 以前の家計簿（v1）のデータ：残高はそのまま引き継ぎ、記録は履歴として取り込む（残高には影響させない） */
@@ -256,15 +275,12 @@ function fromV1(o){
     return {id:uid(), type:e.type, date:e.date, amount:num(e.amount), name:e.name || DEFAULT_NAME[e.type],
       cat: isCat ? d : "", memo: isCat ? "" : d, legacy:true};
   });
-  return {v:2, base:{wallet:num(o.wallet), pasmo:num(o.pasmo), debt:num(o.debt), cc}, entries};
+  return {v:3, base:{bank:num(o.wallet), cash:0, pasmo:num(o.pasmo), paypay:0, debt:num(o.debt), cc}, entries, split:true};
 }
 function load(){
-  try {
-    const s = localStorage.getItem(KEY);
-    if (s) return normalize(JSON.parse(s));
-    const old = localStorage.getItem(LEGACY_KEY);
-    if (old) return fromV1(JSON.parse(old));
-  } catch(e) {}
+  for (const k of [KEY, V2_KEY, LEGACY_KEY]) {
+    try { const s = localStorage.getItem(k); if (s) return normalize(JSON.parse(s)); } catch(e) {}
+  }
   return blank();
 }
 function persist(){
@@ -281,25 +297,23 @@ function ordered(){
 function apply(s, e){
   const a = e.amount;
   if (e.legacy) return;
+  const acc = (k, def) => ACCS.includes(k) ? k : def;
   if (e.type === "expense") {
-    if (e.src === "wallet") s.wallet -= a;
-    else if (e.src === "pasmo") s.pasmo -= a;
-    else if (e.src === "cc") s.cc += a;
+    if (e.src === "cc") s.cc += a;                 // クレカ払い：未払いが増える
+    else s[acc(e.src, "bank")] -= a;
   } else if (e.type === "income") {
-    if (e.dest === "pasmo") s.pasmo += a; else s.wallet += a;
+    s[acc(e.dest, "bank")] += a;
   } else if (e.type === "transfer") {
-    if (e.from === "cc") s.cc += a;            // クレカでPASMOにチャージ：未払いが増える
-    if (e.from === "wallet") s.wallet -= a;
-    if (e.from === "pasmo") s.pasmo -= a;
-    if (e.to === "wallet") s.wallet += a;
-    if (e.to === "pasmo") s.pasmo += a;
-  } else if (e.type === "ccpay") {                // クレカ引落：財布から払い、未払いが減る
-    s.wallet -= a; s.cc -= a;
-  } else if (e.type === "borrow") {               // 借入：受け取ったお金が入り、借金が増える
-    if (e.dest === "pasmo") s.pasmo += a; else s.wallet += a;
+    if (e.from === "cc") s.cc += a;                // クレカでPASMOにチャージ：未払いが増える
+    else if (ACCS.includes(e.from)) s[e.from] -= a;
+    if (ACCS.includes(e.to)) s[e.to] += a;
+  } else if (e.type === "ccpay") {                 // クレカ引落：銀行から払い、未払いが減る
+    s.bank -= a; s.cc -= a;
+  } else if (e.type === "borrow") {                // 借入：受け取ったお金が入り、借金が増える
+    s[acc(e.dest, "bank")] += a;
     s.debt += a;
   } else if (e.type === "debt") {
-    s.wallet -= a; s.debt = Math.max(0, s.debt - a);
+    s[acc(e.src, "bank")] -= a; s.debt = Math.max(0, s.debt - a);
   }
 }
 /* クレカ利用（未払いの元になるもの）の一覧 */
@@ -349,9 +363,10 @@ function fmtDate(s){ const [y,m,d] = String(s).split("-"); return y ? `${Number(
 
 function itemHTML(e){
   let sub = [fmtDate(e.date)];
-  if (e.type === "expense") { if (e.cat) sub.push(e.cat); if (e.src) sub.push(SRC[e.src]); }
-  if (e.type === "income" || e.type === "borrow") sub.push("入金先：" + (e.dest === "pasmo" ? "PASMO" : "財布"));
-  if (e.type === "transfer" && e.from) sub.push(`${PLACE[e.from] || "?"} → ${PLACE[e.to] || "?"}`);
+  if (e.type === "expense") { if (e.cat) sub.push(e.cat); if (e.src) sub.push(NAMES[e.src] || e.src); }
+  if ((e.type === "income" || e.type === "borrow") && !e.legacy) sub.push("入金先：" + (NAMES[e.dest] || "銀行"));
+  if (e.type === "debt" && !e.legacy) sub.push("支払元：" + (NAMES[e.src] || "銀行"));
+  if (e.type === "transfer" && e.from) sub.push(`${NAMES[e.from] || "?"} → ${NAMES[e.to] || "?"}`);
   if (e.type === "ccpay" && e.close) sub.push(`締め日 ${fmtDate(e.close)}` + (Array.isArray(e.items) ? `・${e.items.length}件` : ""));
   if (e.memo) sub.push(e.memo);
   const cls = e.type === "income" ? "plus" : (e.type === "transfer" || e.type === "borrow") ? "move" : "minus";
@@ -372,9 +387,11 @@ function render(){
     if (e.type === "debt") repay += e.amount;
     if (e.type === "borrow") borrowed += e.amount;
   }
-  $("available").textContent = yen(b.wallet - b.cc + b.pasmo);
+  $("available").textContent = yen(b.bank + b.cash - b.cc + b.pasmo + b.paypay);
+  $("cashTotal").textContent = `うち現金（銀行＋財布） ${yen(b.bank + b.cash)}`;
+  $("splitNotice").hidden = !db.split;
   const tiles = arr => arr.map(x => `<div class="metric"><div class="label">${x[0]}</div><div class="value num">${yen(x[1])}</div></div>`).join("");
-  $("metrics").innerHTML = tiles([["財布", b.wallet], ["クレカ未払い", b.cc], ["PASMO残高", b.pasmo], ["借金残高", b.debt]]);
+  $("metrics").innerHTML = tiles([["銀行", b.bank], ["財布", b.cash], ["PASMO残高", b.pasmo], ["PayPay残高", b.paypay], ["クレカ未払い", b.cc], ["借金残高", b.debt]]);
   $("periodMetrics").innerHTML = tiles([["今期の実支出", actual], ["今期の収入", income], ["今期の借入", borrowed], ["今期の借金返済", repay]]);
   const list = newestFirst();
   $("recent").innerHTML = list.length ? list.slice(0, 10).map(itemHTML).join("") : '<div class="empty">まだ記録がありません。上のボタンから入力してください。</div>';
@@ -388,13 +405,14 @@ function show(name){
   if (name === "settings") $("settings").style.display = "flex"; else $("settings").style.display = "";
   document.querySelectorAll("nav button").forEach(b => b.toggleAttribute("aria-current", b.dataset.nav === name));
   document.querySelectorAll("nav button[aria-current]").forEach(b => b.setAttribute("aria-current","page"));
-  if (name === "settings") { const b = balances(); $("setWallet").value = b.wallet; $("setPasmo").value = b.pasmo; $("setDebt").value = b.debt; updateOffline(); }
+  if (name === "settings") { const b = balances(); $("setBank").value = b.bank; $("setCash").value = b.cash; $("setPasmo").value = b.pasmo; $("setPaypay").value = b.paypay; $("setDebt").value = b.debt; updateOffline(); }
   if (name !== "formSection") render();
   window.scrollTo(0, 0);
 }
 let lastView = "home";
 document.querySelectorAll("[data-nav]").forEach(b => b.addEventListener("click", () => { lastView = b.dataset.nav; show(b.dataset.nav); }));
 $("showAll").addEventListener("click", () => { lastView = "history"; show("history"); });
+$("goAdjust").addEventListener("click", () => { lastView = "settings"; show("settings"); });
 
 /* ---------- 入力フォーム ---------- */
 let mode = null, editingId = null, ccWarned = false;
@@ -409,24 +427,31 @@ function openForm(type, entry){
   $("fdateLabel").textContent = type === "ccpay" ? "引落日" : "日付";
   let x = "";
   if (type === "expense") {
-    x = `<div class="formgrid" style="padding:0"><div><label for="fsource">支払元</label><select id="fsource">${opts(SRC, entry?.src || "wallet")}</select></div>
+    x = `<div class="formgrid" style="padding:0"><div><label for="fsource">支払元</label><select id="fsource">${opts(SRC, entry?.src || lastSrc())}</select></div>
          <div><label for="fcat">費目</label><select id="fcat">${CATS.map(c => `<option${c===(entry?.cat||"食費")?" selected":""}>${c}</option>`).join("")}</select></div></div>`;
   } else if (type === "income") {
-    x = `<label for="fdest">入金先</label><select id="fdest">${opts({wallet:"財布", pasmo:"PASMO"}, entry?.dest || "wallet")}</select>`;
+    x = `<label for="fdest">入金先</label><select id="fdest">${opts(DEST, entry?.dest || "bank")}</select>`;
   } else if (type === "transfer") {
-    x = `<div class="formgrid" style="padding:0"><div><label for="ffrom">移動元</label><select id="ffrom">${opts(PLACE, entry?.from || "cc")}</select></div>
-         <div><label for="fto">移動先</label><select id="fto">${opts({pasmo:"PASMO", wallet:"財布"}, entry?.to || "pasmo")}</select></div></div>`;
+    x = `<div class="formgrid" style="padding:0"><div><label for="ffrom">移動元</label><select id="ffrom">${opts(FROM, entry?.from || "cc")}</select></div>
+         <div><label for="fto">移動先</label><select id="fto">${opts(TO, entry?.to || "pasmo")}</select></div></div>
+         <p class="notice">PASMOへのクレカチャージは「クレカ → PASMO」、PayPayへの入金は「銀行 → PayPay」、ATMでの引き出しは「銀行 → 財布」です。</p>`;
   } else if (type === "ccpay") {
     x = `<label for="fclose">締め日</label><input id="fclose" type="date" value="${esc(entry?.close || defaultClose())}">
-         <p class="notice">締め日までの利用に自動でチェックが入ります。翌月扱いになる利用はチェックを外し、締め日より後でも今回の請求に入っている利用はチェックを付けてください。チェックしなかった利用は次回の引落に残ります。</p>
+         <p class="notice">締め日までの利用に自動でチェックが入ります。翌月扱いになる利用はチェックを外し、締め日より後でも今回の請求に入っている利用はチェックを付けてください。チェックしなかった利用は次回の引落に残ります。引落額は銀行の残高から減ります。</p>
          <div class="ccsum" id="ccsum"></div>`;
   } else if (type === "borrow") {
-    x = `<label for="fdest">入金先</label><select id="fdest">${opts({wallet:"財布", pasmo:"PASMO"}, entry?.dest || "wallet")}</select>
+    x = `<label for="fdest">入金先</label><select id="fdest">${opts(DEST, entry?.dest || "bank")}</select>
          <p class="notice">借りたお金が入金先に入り、借金残高が増えます。収入には計上しません。</p>`;
   } else if (type === "debt") {
-    x = `<p class="notice">返済額は財布から出て、借金残高が減ります。</p>`;
+    x = `<label for="fsource">支払元</label><select id="fsource">${opts(PAYFROM, entry?.src || "bank")}</select>
+         <p class="notice">返済額は支払元から出て、借金残高が減ります。</p>`;
   }
   $("extra").innerHTML = x;
+  if (type === "transfer") {
+    // PayPayへの入金は銀行からだけ。移動先にPayPayを選んだら移動元を銀行にする
+    $("fto").addEventListener("change", () => { if ($("fto").value === "paypay") $("ffrom").value = "bank"; });
+    $("ffrom").addEventListener("change", () => { if ($("ffrom").value === "cc") $("fto").value = "pasmo"; });
+  }
   // クレカ引落は「締め日」を金額より先に表示する
   if (type === "ccpay") $("amountWrap").before($("extra")); else $("fname").parentElement.after($("extra"));
   if (type === "ccpay") {
@@ -447,6 +472,11 @@ function openForm(type, entry){
   disarm(); ccWarned = false;
   show("formSection");
   if (!entry && type !== "ccpay") setTimeout(() => $("famount").focus(), 50);
+}
+/* 支出の支払元の初期値：前回の支出と同じ（初回は財布） */
+function lastSrc(){
+  for (let i = db.entries.length - 1; i >= 0; i--) { const e = db.entries[i]; if (e.type === "expense" && !e.legacy && SRC[e.src]) return e.src; }
+  return "cash";
 }
 /* 締め日の初期値：前回の引落の締め日の1か月後（初回は今日） */
 function defaultClose(){
@@ -495,12 +525,19 @@ $("entryForm").addEventListener("submit", ev => {
     name: $("fname").value.trim() || DEFAULT_NAME[mode], memo: $("fmemo").value.trim()};
   if (old && old.legacy) e.legacy = true;
   if (mode === "expense") { e.src = $("fsource").value; e.cat = $("fcat").value; }
+  if (mode === "debt") e.src = $("fsource").value;
   if (mode === "income" || mode === "borrow") e.dest = $("fdest").value;
   if (mode === "transfer") {
     e.from = $("ffrom").value; e.to = $("fto").value;
     if (e.from === e.to) { toast("移動元と移動先を別にしてください"); return; }
     if (e.from === "cc" && e.to !== "pasmo") { toast("クレカからはPASMOへのチャージだけ記録できます"); return; }
-    if (e.from === "cc" && !$("fname").value.trim()) e.name = "PASMOチャージ";
+    if (e.to === "paypay" && e.from !== "bank") { toast("PayPayへの入金は銀行からだけ記録できます"); return; }
+    if (!$("fname").value.trim()) {
+      if (e.to === "pasmo") e.name = "PASMOチャージ";
+      else if (e.to === "paypay") e.name = "PayPayチャージ";
+      else if (e.from === "bank" && e.to === "cash") e.name = "現金引き出し";
+      else if (e.from === "cash" && e.to === "bank") e.name = "預け入れ";
+    }
   }
   if (mode === "ccpay") {
     e.close = $("fclose").value || date;
@@ -535,9 +572,12 @@ $("deleteBtn").addEventListener("click", () => {
 /* ---------- 設定 ---------- */
 $("saveSettings").addEventListener("click", () => {
   const cur = balances();
-  db.base.wallet += num($("setWallet").value) - cur.wallet;
+  db.base.bank += num($("setBank").value) - cur.bank;
+  db.base.cash += num($("setCash").value) - cur.cash;
   db.base.pasmo += num($("setPasmo").value) - cur.pasmo;
+  db.base.paypay += num($("setPaypay").value) - cur.paypay;
   db.base.debt += num($("setDebt").value) - cur.debt;
+  delete db.split;
   if (persist()) { render(); toast("残高を保存しました"); }
 });
 
@@ -586,7 +626,7 @@ $("resetBtn").addEventListener("click", () => {
   }
   clearTimeout(resetArmed); resetArmed = null;
   db = blank(); persist();
-  try { localStorage.removeItem(LEGACY_KEY); } catch(e) {}
+  try { localStorage.removeItem(V2_KEY); localStorage.removeItem(LEGACY_KEY); } catch(e) {}
   b.classList.remove("armed"); b.textContent = "全データを削除";
   toast("全データを削除しました"); show("home");
 });
